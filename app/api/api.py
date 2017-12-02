@@ -1,10 +1,9 @@
 from app import mongo
 from config import STRICT_HEADERS
-from .utilities import accept_headers, as_asobj, check_headers, content_headers, find_post, find_user
+from .utilities import accept_headers, as_asobj, check_headers, content_headers, find_post, find_user, get_time
 
 from activipy import core, vocab
 from flask import abort, Blueprint, request, Response
-from flask_restful import Resource
 
 import json
 import requests
@@ -31,10 +30,10 @@ def add_at_prefix():
                 r['@'+key] = r.pop(key)
 
 
-@api.route('/<handle>/followers')
+@api.route('/<handle>/following')
 def following(handle):
     """
-    returns a Collection of all Actors' @ids who follow given Actor
+    returns a Collection of all Actors' @ids who given actor follows
     """
     u = find_user(handle)
 
@@ -93,21 +92,51 @@ def inbox(handle):
         """
         print('inbox post')
         u = find_user(handle)
-        r = core.asobj(request.get_json())
+        r = core.ASObj(request.get_json())
 
         if 'Create' in r.types:
             # this needs more stuff, like creating a user if necessary
-            if mongo.db.posts.find({'id': r['@id']}) is not None:
+            if mongo.db.posts.find({'@id': r['@id']}) is not None:
                 try:
-                    mongo.db.posts.insert_one(r['object'])
+                    r.update(dict(origin=request.environ['HTTP_ORIGIN']))
+                    mongo.db.posts.insert_one(r)
                     return Response(status=201)
                 except:
                     return Response(status=500)
         elif 'Update' in r.types:
-
-            return Response(status=501)
+            if 'Actor' in r.types:
+                time = get_time()
+                r['updated']=time
+                try:
+                    mongo.db.users.find_one_and_replace({'@id': r['@id']}, r.json(), {'upsert': True})
+                    return Response(status=201)
+                except:
+                    return Response(status=500)
+            elif ('Object' or 'Activity') in r.types:
+                try:
+                    mongo.db.posts.find_one_and_replace({'@id': r['@id']}, r.json(), {'upsert': True})
+                    return Response(status=201)
+                except:
+                    return Response(status=500)
         elif 'Delete' in r.types:
-
+            time = get_time()
+            tombstone = vocab.Tombstone(
+                r['@id'],
+                published=r['published'],
+                updated=time,
+                deleted=time)
+            if 'Actor' in r.types:
+                try:
+                    mongo.db.users.find_one_and_replace({'@id': r['@id']}, tombstone.json())
+                    return Response(status=201)
+                except:
+                    return Response(status=500)
+            elif ('Object' or 'Activity') in r.types:
+                try:
+                    mongo.db.posts.find_one_and_replace({'@id': r['@id']}, tombstone.json())
+                    return Response(status=201)
+                except:
+                    return Response(status=500)
             return Response(status=501)
         elif 'Follow' in r.types:
             if u.get('followers_coll'):
@@ -134,26 +163,26 @@ def inbox(handle):
             except:
                 return Response(status=501)
         elif 'Reject' in r.types:
-            
-            return Response(status=501)
+            return Response(status=200)
         elif 'Add' in r.types:
-            
             return Response(status=501)
         elif 'Remove' in r.types:
-            
             return Response(status=501)
         elif 'Like' in r.types:
-            print('received Like')
             try:
                 mongo.db.posts.update_one({'id': r['object']}, {'$push': {'object.liked_coll': r['actor']}}, upsert=True)
                 return Response(status=201)
             except:
                 return Response(status=500)
         elif 'Announce' in r.types:
-            
-            return Response(status=501)
+            try:
+                mongo.db.posts.update_one({'id': r['object']}, {'$push': {'object.shared_coll': r['actor']}}, upsert=True)
+                return Response(status=201)
+            except:
+                return Response(status=500)
         elif 'Undo' in r.types:
-            
+            # this requires maybe a lot of stuff for implementing?
+            # i'll think about it later
             return Response(status=501)
         else:
             print('other type')
@@ -203,33 +232,32 @@ def feed(handle):
                 obj=obj)
 
         if 'Create' in r.types:
-            if r['object']['@type'] != 'Note':
-                print(str(r))
-                print('not a note')
-                return Response(status=403)
-
             mongo.db.users.update({'acct': u['acct']}, {'$inc': {'metrics.post_count': 1}})
         elif 'Update' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Delete' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Follow' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Accept' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Reject' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Add' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Remove' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Like' in r.types:
             if u['acct'] not in mongo.db.posts.find({'@id': r['object']['@id']})['likes']:
-                mongo.db.posts.update({'@id': r['object']['@id']}, {'$push': {'likes': u['acct']}})
+                try:
+                    mongo.db.posts.update({'@id': r['object']['@id']}, {'$push': {'likes': u['acct']}})
+                    return Response(status=201)
+                except:
+                    return Response(status=500)
         elif 'Announce' in r.types:
-            Response(status=501)
+            return Response(status=501)
         elif 'Undo' in r.types:
-            Response(status=501)
+            return Response(status=501)
 
         recipients = []
         r = r.json()
