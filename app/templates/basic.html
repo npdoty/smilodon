@@ -13,7 +13,7 @@
   <div id="header">
     {% block header %}
       <h1><div class="brand" id="company"><a href="/">
-        smilodon.social
+        {{server_name}}
       </a></div></h1>
       <a href="/compose">compose a post</a>
     {% endblock header %}
@@ -44,7 +44,7 @@
         <span class="spacer"></span>
         <span>
         {% if current_user.is_authenticated: %}
-          logged in as: {{ mongo.db.users.find_one({'id': current_user.get_id()})['name'] }}
+          logged in as: {{ username }}
           <a href="/logout">logout</a>
         {% else: %}
           <a href="{{url_for('login')}}">login</a>

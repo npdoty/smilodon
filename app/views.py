@@ -1,5 +1,5 @@
 from app import app, lm, mongo, webfinger
-from config import ACCEPT_HEADERS
+from config import ACCEPT_HEADERS, SERVER_NAME
 from .api import api
 from .api.utilities import content_headers, find_user
 from .forms import userLogin, userRegister, composePost
@@ -31,6 +31,22 @@ def load_user(handle):
         return None
     return User(u['@id'])
 
+@app.context_processor
+def add_site_information():
+    """
+    Add basic information about the site to the context
+    for all templates (server name, credits, etc.).
+    """
+    server_contexts = {'server_name': SERVER_NAME}
+    return server_contexts
+
+@app.context_processor
+def add_user_information():
+    user_contexts = {}
+    user = get_logged_in_user()
+    if user:
+        user_contexts['username'] = user['username']
+    return user_contexts
 
 # MISCELLANEA
 
